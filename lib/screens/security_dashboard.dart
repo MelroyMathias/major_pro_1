@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // ✅ ADD THIS
+import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:vibration/vibration.dart';
 
 class SecurityDashboard extends StatefulWidget {
   const SecurityDashboard({super.key});
@@ -17,17 +18,56 @@ class _SecurityDashboardState extends State<SecurityDashboard> {
   bool isLoading = true;
   String statusText = "Initializing...";
 
-  static const platform = MethodChannel('kiosk_mode'); // ✅ ADD THIS
+  static const platform = MethodChannel('kiosk_mode');
 
   @override
   void initState() {
     super.initState();
-    enableKioskMode(); // 🔥 START KIOSK
+
+    print("🔥 GUARD UID: ${FirebaseAuth.instance.currentUser?.uid}");
+
+    enableKioskMode();
     setOnline();
     startLocationUpdates();
+    listenForAlerts();
   }
 
-  /// 🔒 Enable kiosk mode
+  /// 🚨 ALERT LISTENER
+  void listenForAlerts() {
+    FirebaseFirestore.instance
+        .collection('alerts')
+        .snapshots()
+        .listen((snapshot) async {
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+
+        print("🔥 ALERT: $data");
+
+        if (data['status'] == 'pending') {
+
+          print("🚨 VIBRATING NOW");
+
+          try {
+            if (await Vibration.hasVibrator() ?? false) {
+              Vibration.vibrate(duration: 2000);
+            }
+          } catch (e) {
+            print("Vibration error: $e");
+          }
+
+          await doc.reference.update({'status': 'received'});
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("🚨 Emergency Alert!")),
+            );
+          }
+        }
+      }
+    });
+  }
+
   Future<void> enableKioskMode() async {
     try {
       await platform.invokeMethod('startKiosk');
@@ -36,7 +76,6 @@ class _SecurityDashboardState extends State<SecurityDashboard> {
     }
   }
 
-  /// 🔓 Disable kiosk mode
   Future<void> disableKioskMode() async {
     try {
       await platform.invokeMethod('stopKiosk');
@@ -45,7 +84,6 @@ class _SecurityDashboardState extends State<SecurityDashboard> {
     }
   }
 
-  /// ✅ Set user online
   Future<void> setOnline() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
@@ -55,7 +93,6 @@ class _SecurityDashboardState extends State<SecurityDashboard> {
     }
   }
 
-  /// ✅ Set user offline
   Future<void> setOffline() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
@@ -65,7 +102,6 @@ class _SecurityDashboardState extends State<SecurityDashboard> {
     }
   }
 
-  /// 📍 Start live location updates
   Future<void> startLocationUpdates() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
@@ -118,16 +154,14 @@ class _SecurityDashboardState extends State<SecurityDashboard> {
     });
   }
 
-  /// 🔴 When screen closes → set offline
   @override
   void dispose() {
     setOffline();
     super.dispose();
   }
 
-  /// 🚪 Logout
   Future<void> logout() async {
-    await disableKioskMode(); // 🔥 EXIT KIOSK
+    await disableKioskMode();
     await setOffline();
     await FirebaseAuth.instance.signOut();
 
@@ -136,17 +170,16 @@ class _SecurityDashboardState extends State<SecurityDashboard> {
     }
   }
 
-  /// 🎨 UI
   @override
   Widget build(BuildContext context) {
-    return WillPopScope( // 🔥 BLOCK BACK BUTTON
+    return WillPopScope(
       onWillPop: () async => false,
       child: Scaffold(
         appBar: AppBar(
           title: const Text("Guard Dashboard"),
           centerTitle: true,
           backgroundColor: Colors.blue,
-          automaticallyImplyLeading: false, // 🔥 REMOVE BACK ARROW
+          automaticallyImplyLeading: false,
           actions: [
             IconButton(
               icon: const Icon(Icons.logout),
@@ -155,71 +188,40 @@ class _SecurityDashboardState extends State<SecurityDashboard> {
           ],
         ),
         body: Center(
-          child: Container(
-            constraints: const BoxConstraints(maxWidth: 500),
-            padding: const EdgeInsets.all(20),
-            child: isLoading
-                ? const CircularProgressIndicator()
-                : Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.security, size: 70, color: Colors.blue),
-                      const SizedBox(height: 15),
+          child: isLoading
+              ? const CircularProgressIndicator()
+              : Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.security, size: 70, color: Colors.blue),
+                    const SizedBox(height: 15),
 
-                      const Text(
-                        "Welcome Guard 🛡️",
-                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                    const Text(
+                      "Welcome Guard 🛡️",
+                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    Text(
+                      currentPosition != null
+                          ? "Lat: ${currentPosition!.latitude}, Lng: ${currentPosition!.longitude}"
+                          : "Location not available",
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    Text(
+                      statusText,
+                      style: TextStyle(
+                        color: statusText == "Tracking Active"
+                            ? Colors.green
+                            : Colors.red,
+                        fontSize: 16,
                       ),
-
-                      const SizedBox(height: 20),
-
-                      /// 📍 LOCATION CARD
-                      Card(
-                        elevation: 6,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(15)),
-                        child: Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: Column(
-                            children: [
-                              const Text(
-                                "Live Location",
-                                style: TextStyle(
-                                    fontSize: 18, fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 10),
-
-                              Text(
-                                currentPosition != null
-                                    ? "Latitude: ${currentPosition!.latitude}"
-                                    : "Latitude: --",
-                              ),
-                              const SizedBox(height: 5),
-                              Text(
-                                currentPosition != null
-                                    ? "Longitude: ${currentPosition!.longitude}"
-                                    : "Longitude: --",
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 20),
-
-                      /// 🟢 STATUS
-                      Text(
-                        statusText,
-                        style: TextStyle(
-                          color: statusText == "Tracking Active"
-                              ? Colors.green
-                              : Colors.red,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ],
-                  ),
-          ),
+                    ),
+                  ],
+                ),
         ),
       ),
     );

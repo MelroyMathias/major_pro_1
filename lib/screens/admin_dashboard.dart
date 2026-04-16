@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'widgets/overview_cards.dart';
 import 'widgets/add_user_form.dart';
 import 'widgets/user_list.dart';
+import '/widgets/dashboard_home.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -17,7 +17,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
   int selectedIndex = 0;
 
   final List<Widget> pages = [
-    const OverviewCards(),
+    const DashboardHome(), 
     const AddUserForm(),
     const UserList(),
   ];
